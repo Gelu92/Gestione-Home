@@ -65,6 +65,9 @@ header.top{flex:none;background:var(--bg);border-bottom:1px solid var(--line);pa
 .hdr-btn[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .hdr-btn .lab{display:none}
 @media (max-width:380px){.brand-mark{display:none}}
+body.zoomed:not(.desk) .area:not([aria-current]) span.l{display:none}
+body.zoomed:not(.desk) nav.areas{grid-template-columns:auto auto auto auto}
+body.zoomed:not(.desk) .brand-mark{display:none}
 @media (max-width:440px){.btn-install .t2{display:none}}
 body.in-area:not(.desk) #homeSet{display:none}
 @media (max-width:350px){.btn-install .t2{display:none}}
@@ -294,7 +297,7 @@ body.desk .fab{bottom:28px;right:32px}
 (() => {
 'use strict';
 const APP = 'Home';
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const KEY = 'gelu-inc-home-v1';
 const KEY_INST = 'gelu-inc-home-installed';
 const BIL_INBOX = 'gelu-inc-bilancino-inbox';
@@ -317,14 +320,17 @@ const longD = s => cap(parseD(s).toLocaleDateString('it-IT', {weekday:'long', da
 const CK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 /* ---------- impostazioni di Home ---------- */
-let H = {modo:'auto', apertura:'smart', tema:'auto', last:{area:'home', t:0}, order:['casa', 'spesa', 'soldi'], hide:{}, pin:null, pinLen:0, split:{on:false, a:'spesa', b:'soldi'}, reportSeen:''};
+let H = {modo:'auto', apertura:'smart', tema:'auto', last:{area:'home', t:0}, order:['casa', 'spesa', 'soldi'], hide:{}, pin:null, pinLen:0, split:{on:false, a:'spesa', b:'soldi'}, reportSeen:'', lastBackup:'', firstUse:'', testo:'n', tourDone:false, lastVersion:'', yearSeen:''};
 try { H = Object.assign(H, JSON.parse(localStorage.getItem(KEY)) || {}); } catch(_){}
 if (!Array.isArray(H.order) || H.order.length !== 3) H.order = ['casa', 'spesa', 'soldi'];
+const ZOOMS = {n:1, g:1.1, xg:1.2};
+const zoom = () => ZOOMS[H.testo] || 1;
 const saveH = () => { try { localStorage.setItem(KEY, JSON.stringify(H)); } catch(_){} };
 const isDesk = () => H.modo === 'desk' || (H.modo === 'auto' && window.innerWidth >= 1000);
 const splitOn = () => isDesk() && H.split && H.split.on;
 /* le sezioni leggono questo oggetto prima ancora di disegnarsi */
-window.__GELU_HOME__ = {get desk(){ return isDesk(); }, get tema(){ return H.tema; }, get pinOn(){ return !!H.pin; }};
+window.__GELU_HOME__ = {get desk(){ return isDesk(); }, get tema(){ return H.tema; }, get pinOn(){ return !!H.pin; }, get zoom(){ return zoom(); }};
+function applyZoom(){ document.documentElement.style.zoom = zoom() !== 1 ? zoom() : ''; document.body.classList.toggle('zoomed', zoom() !== 1); Object.keys(AREAS).forEach(a => whenReady(a, h => h.setZoom && h.setZoom(zoom()))); }
 
 function applyTheme(){ const el = document.documentElement; if (H.tema === 'auto') el.removeAttribute('data-theme'); else el.setAttribute('data-theme', H.tema); }
 let curArea = null, curView = 'home';
@@ -342,7 +348,7 @@ function loadFrames(azioni){
     f.onload = () => {
       const h = hook(a); if (!h) return;
       watchHeader(a);
-      try { if (H.tema !== 'auto') h.setTheme(H.tema); h.setDesk(isDesk()); } catch(_){}
+      try { if (H.tema !== 'auto') h.setTheme(H.tema); h.setDesk(isDesk()); if (h.setZoom) h.setZoom(zoom()); } catch(_){}
       readyQ[a].splice(0).forEach(fn => { try { fn(h); } catch(_){} });
       if (curView === 'home') renderOv(); else if (curArea === a) syncButtons();
       updateBadges();
@@ -436,10 +442,16 @@ function renderOv(){
   const [py, pm] = prevYM(), pk = `${py}-${pm}`;
   const showRep = d.getDate() <= 5 && H.reportSeen !== pk;
   const order = H.order.filter(a => !H.hide[a]);
+  const bkDays = H.lastBackup ? Math.round((parseD(today()) - parseD(H.lastBackup)) / 864e5) : null, useDays = H.firstUse ? Math.round((parseD(today()) - parseD(H.firstUse)) / 864e5) : 0;
+  const showBk = bkDays == null ? useDays >= 3 : bkDays > 14;
+  const yr = d.getMonth() === 11 ? d.getFullYear() : d.getMonth() === 0 && d.getDate() <= 15 ? d.getFullYear() - 1 : null;
+  const showYr = yr != null && (d.getMonth() === 0 || d.getDate() >= 15) && H.yearSeen !== String(yr);
   $('#ov').innerHTML = `<div class="ovin">
     <div class="hello"><span class="d">${saluto} · ${longD(today())}</span><h2>${titolo()}</h2></div>
+    ${showBk ? `<div class="alert"><span>💾 ${bkDays == null ? 'Non hai ancora fatto un backup.' : `Ultimo backup ${bkDays} giorni fa.`} I dati stanno solo su questo dispositivo.</span><button type="button" data-bk>Fai il backup</button></div>` : ''}
+    ${showYr ? `<div class="alert"><span>🎉 Il tuo ${yr} in casa è pronto.</span><button type="button" data-yr="${yr}">Guardalo</button></div>` : ''}
     ${showRep ? `<div class="alert"><span>📊 Il mese di ${MESI[pm]} è finito: ecco com'è andato.</span><button type="button" data-rep="${py}:${pm}">Il mese in breve</button></div>` : ''}
-    <div class="tools"><button class="tbtn" type="button" data-qadd><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Aggiungi al volo</button><button class="tbtn" type="button" data-search><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Cerca</button><button class="tbtn" type="button" data-rep="${py}:${pm}">Il mese in breve</button></div>
+    <div class="tools"><button class="tbtn" type="button" data-qadd><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Aggiungi al volo</button><button class="tbtn" type="button" data-search><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Cerca</button><button class="tbtn" type="button" data-rep="${py}:${pm}">Il mese in breve</button><button class="tbtn" type="button" data-yr="${yr != null ? yr : d.getFullYear()}">Il tuo anno</button></div>
     <div class="cards">${order.map(areaCard).join('')}</div>
     ${renderCal()}
     <p class="muted" style="margin:0;font-size:13px;text-align:center">${APP} · versione ${VERSION} · © Gelu Inc.</p>
@@ -509,6 +521,8 @@ $('#ov').addEventListener('click', e => {
   const ev = t.closest('[data-ev]'); if (ev){ const [d, i] = [ev.dataset.ev.slice(0, 10), Number(ev.dataset.ev.slice(11))], x = calEvent(d, i); if (x) openIn(x.a, x); return; }
   const rp = t.closest('[data-rep]'); if (rp){ const [y, m] = rp.dataset.rep.split(':').map(Number); return reportSheet(y, m); }
   if (t.closest('[data-qadd]')) return quickSheet();
+  if (t.closest('[data-bk]')) return exportSheet();
+  const yb = t.closest('[data-yr]'); if (yb) return yearSheet(Number(yb.dataset.yr));
   if (t.closest('[data-search]')) return searchSheet();
 });
 $('#ov').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role=button]')){ e.preventDefault(); e.target.click(); } });
@@ -527,7 +541,7 @@ function parseQuick(txt){
 function bilCat(d){ const x = d.toLowerCase(); return /bollett|luce|gas|acqua|affitto|condominio|internet|telefono/.test(x) ? 'casa' : /benzin|gasolio|carburant|bollo|meccanic|auto\b/.test(x) ? 'auto' : /farmac|medic|dentist/.test(x) ? 'salute' : /pizza|ristorant|bar\b|cena|pranzo/.test(x) ? 'svago' : 'spesa'; }
 function quickSheet(){
   openSheet(`<h2>Aggiungi al volo</h2><p>Scrivi e scegli dove va: lo capisco da solo, ma puoi cambiarlo.</p>
-    <input class="qin" id="q-in" placeholder="Es. latte, bolletta luce 78 €, pulire i vetri" autocomplete="off" enterkeyhint="done">
+    <div style="display:flex;gap:8px"><input class="qin" id="q-in" placeholder="Es. latte, bolletta luce 78 €, pulire i vetri" autocomplete="off" enterkeyhint="done" style="flex:1;min-width:0"><button class="hdr-btn" type="button" id="q-mic" aria-label="Detta con la voce" aria-pressed="false" style="width:52px;height:52px" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
     <div class="dest" id="q-dest">${DEST.map(([k, l, c]) => `<button type="button" data-qd="${k}"><i style="background:${c}"></i>${l}</button>`).join('')}</div>
     <div class="qprev" id="q-prev"></div>
     <button class="btn wide" id="q-ok">Aggiungi</button>
@@ -538,7 +552,8 @@ function quickSheet(){
     const upd = () => {
       const p = cur(), v = inp.value.trim();
       root.querySelectorAll('[data-qd]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.qd === p.dest)));
-      prev.textContent = !v ? '' : p.dest === 'soldi' ? (p.importo ? `Uscita di ${p.importo.toLocaleString('it-IT', {style:'currency', currency:'EUR'})}: «${p.descr}», oggi.` : 'Scrivi anche l’importo, es. «benzina 50 €».') : p.dest === 'spesa' ? `«${cap(v)}» nella lista della spesa.` : p.dest === 'faccenda' ? `Faccenda «${cap(p.text || v)}», da fare quando serve. La frequenza la cambi poi.` : p.dest === 'lavoro' ? `Lavoro «${cap(p.text || v)}» nella lista dei lavori.` : 'Nota in Casa → Note.';
+      const pp = v.split(/\s*,\s*|\s+e\s+/i).filter(Boolean);
+      prev.textContent = !v ? '' : p.dest === 'spesa' && pp.length > 1 ? `${pp.length} cose nella lista della spesa: ${pp.join(', ')}.` : p.dest === 'soldi' ? (p.importo ? `Uscita di ${p.importo.toLocaleString('it-IT', {style:'currency', currency:'EUR'})}: «${p.descr}», oggi.` : 'Scrivi anche l’importo, es. «benzina 50 €».') : p.dest === 'spesa' ? `«${cap(v)}» nella lista della spesa.` : p.dest === 'faccenda' ? `Faccenda «${cap(p.text || v)}», da fare quando serve. La frequenza la cambi poi.` : p.dest === 'lavoro' ? `Lavoro «${cap(p.text || v)}» nella lista dei lavori.` : 'Nota in Casa → Note.';
     };
     inp.addEventListener('input', () => { manual = null; upd(); });
     root.querySelectorAll('[data-qd]').forEach(b => b.addEventListener('click', () => { manual = b.dataset.qd; upd(); inp.focus(); }));
@@ -550,11 +565,28 @@ function quickSheet(){
         try { const a = JSON.parse(localStorage.getItem(BIL_INBOX) || '[]'); a.push({id:'home-' + uid(), data:today(), importo:Math.round(p.importo * 100) / 100, descr:p.descr, cat:bilCat(p.descr), app:'Aggiungi al volo'}); localStorage.setItem(BIL_INBOX, JSON.stringify(a)); } catch(_){}
         const h = hook('soldi'); if (h) h.show();
         msg = `Registrata in Soldi: ${p.descr}, ${p.importo.toLocaleString('it-IT', {style:'currency', currency:'EUR'})}`;
-      } else if (p.dest === 'spesa'){ const h = hook('spesa'); msg = h ? h.add(v) : ''; }
+      } else if (p.dest === 'spesa'){
+        const h = hook('spesa'), parts = v.split(/\s*,\s*|\s+e\s+/i).map(x => x.trim()).filter(Boolean);
+        if (h){ const out = parts.map(x => h.add(x)).filter(Boolean); msg = out.length > 1 ? `${out.length} cose aggiunte alla lista: ${parts.join(', ')}` : out[0] || ''; }
+      }
       else { const h = hook('casa'); msg = h ? h.quickAdd(p.dest, p.text || v) : ''; }
       toast(msg || 'Aggiunto'); inp.value = ''; manual = null; upd(); inp.focus(); renderOv(); updateBadges();
     };
     root.querySelector('#q-ok').addEventListener('click', go);
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition, mic = root.querySelector('#q-mic');
+    if (SR){
+      mic.hidden = false; let rec = null;
+      mic.addEventListener('click', () => {
+        if (rec){ try { rec.stop(); } catch(_){} return; }
+        try { rec = new SR(); } catch(_){ toast('Dettatura non disponibile qui'); return; }
+        rec.lang = 'it-IT'; rec.interimResults = false; rec.maxAlternatives = 1;
+        rec.onresult = ev => { let t = ev.results[0][0].transcript || ''; t = t.replace(/(\d+)\s+virgola\s+(\d+)/gi, '$1,$2').replace(/\beuro\b/gi, '€'); inp.value = t; manual = null; upd(); };
+        rec.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') toast('Serve il permesso del microfono'); else if (ev.error !== 'no-speech' && ev.error !== 'aborted') toast('Non ho capito, riprova'); };
+        rec.onend = () => { rec = null; mic.setAttribute('aria-pressed', 'false'); };
+        mic.setAttribute('aria-pressed', 'true');
+        try { rec.start(); } catch(_){ rec = null; mic.setAttribute('aria-pressed', 'false'); }
+      });
+    }
     inp.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); go(); } });
     upd(); setTimeout(() => inp.focus(), 60);
   });
@@ -596,6 +628,38 @@ function reportSheet(y, m){
   renderOv();
 }
 
+/* ---------- il tuo anno in casa ---------- */
+function yearSheet(y){
+  if (y === new Date().getFullYear() - 1 || (new Date().getMonth() === 11 && y === new Date().getFullYear())){ H.yearSeen = String(y); saveH(); }
+  const block = a => { let r = null; try { const h = hook(a); r = h && h.year ? h.year(y) : null; } catch(_){} if (!r) return ''; return `<div class="acard" style="--c:${AREAS[a].col}"><div class="ah" style="cursor:default">${ICON[a]}<h3>${AREAS[a].nome}</h3></div><div style="padding:6px 14px 12px">${r.locked ? '<p>🔒 Protetto dal PIN.</p>' : r.rows.map(([l, v]) => `<div class="rrow"><span>${esc(l)}</span><b class="num">${esc(v)}</b></div>`).join('') + (r.note ? `<p style="font-size:13px;margin-top:6px">${esc(r.note)}</p>` : '')}</div></div>`; };
+  const cy = new Date().getFullYear();
+  openSheet(`<div class="calhead"><button class="nbtn" type="button" data-ym="-1" aria-label="Anno precedente">‹</button><h3>Il tuo ${y} in casa</h3><button class="nbtn" type="button" data-ym="1" ${y >= cy ? 'disabled' : ''} aria-label="Anno successivo">›</button></div>
+    <p>${y === cy ? 'Dall’inizio dell’anno a oggi.' : 'L’anno intero.'}</p>
+    ${['soldi', 'spesa', 'casa'].map(block).join('')}
+    <button class="btn wide" data-close>Chiudi</button>`, root => {
+    root.querySelectorAll('[data-ym]').forEach(b => b.addEventListener('click', () => yearSheet(y + Number(b.dataset.ym))));
+  });
+  renderOv();
+}
+
+/* ---------- guida alla prima apertura ---------- */
+const TOUR = [
+  ['Benvenuto in Home', 'Soldi, Spesa e Casa in un posto solo. Il <b>Riepilogo</b> ti mostra cosa c’è da fare oggi, cosa comprare e i pagamenti in arrivo: puoi spuntare faccende e prodotti, e pagare le bollette, direttamente da qui.'],
+  ['Le tre sezioni', 'In alto passi da <b>Soldi</b> a <b>Spesa</b> a <b>Casa</b>: ognuna ha le sue schede in basso. La <b>lente</b> cerca in tutto, il <b>foglietto</b> apre le Note, l’<b>ingranaggio</b> le impostazioni della sezione aperta.'],
+  ['Aggiungi al volo', 'Con <b>+ Aggiungi</b> scrivi o detti «latte», «bolletta luce 78 €» o «pulire i vetri»: capisco io dove va. Nelle impostazioni di Home trovi la modalità computer, il PIN, la dimensione del testo e il backup.']
+];
+function tourSheet(i = 0){
+  const [t, x] = TOUR[i];
+  openSheet(`<div style="display:flex;justify-content:center;gap:6px">${TOUR.map((_, k) => `<span style="width:${k === i ? 18 : 7}px;height:7px;border-radius:4px;background:${k === i ? 'var(--ink)' : 'var(--line)'}"></span>`).join('')}</div>
+    <h2>${t}</h2><p style="font-size:15px;line-height:1.55">${x}</p>
+    <div class="btnrow">${i ? '<button class="btn ghost" type="button" data-tb>Indietro</button>' : '<button class="btn ghost" type="button" data-tx>Salta</button>'}<button class="btn" type="button" data-tn>${i < TOUR.length - 1 ? 'Avanti' : 'Iniziamo'}</button></div>`, root => {
+    const end = () => { H.tourDone = true; saveH(); closeSheet(); };
+    const b = root.querySelector('[data-tb]'); if (b) b.addEventListener('click', () => tourSheet(i - 1));
+    const x2 = root.querySelector('[data-tx]'); if (x2) x2.addEventListener('click', end);
+    root.querySelector('[data-tn]').addEventListener('click', () => i < TOUR.length - 1 ? tourSheet(i + 1) : end());
+  });
+}
+
 /* ---------- impostazioni di Home ---------- */
 function renderImpo(){
   const seg = (k, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-h="${k}:${v}" aria-pressed="${H[k] === v}">${l}</button>`).join('')}</div>`;
@@ -615,8 +679,12 @@ function renderImpo(){
     <div class="card"><h4>PIN</h4><p>${H.pin ? `Attivo: Home chiede il PIN all'apertura e dopo un minuto in background. Il PIN di Soldi, se c'è, non viene più chiesto.` : `Protegge tutta Home con un PIN di 4–6 cifre. Se lo dimentichi non si può recuperare: tieni un backup.`}</p>
       <button class="btn ghost" type="button" data-pin>${H.pin ? 'Cambia o togli il PIN' : 'Imposta il PIN'}</button></div>
     <div class="card"><h4>Tema</h4>${seg('tema', [['auto','Automatico'],['light','Chiaro'],['dark','Scuro']])}<p>Vale per tutte e tre le sezioni.</p></div>
+    <div class="card"><h4>Dimensione del testo</h4>${seg('testo', [['n','Normale'],['g','Grande'],['xg','Molto grande']])}<p>Ingrandisce testo e pulsanti in tutta Home.</p></div>
     <div class="card"><h4>Backup di tutto</h4><p>Soldi, Spesa e Casa in un solo file. Salvalo su Drive ogni tanto. Le foto restano sul telefono.</p>
       <div class="btnrow"><button class="btn ghost" type="button" data-act="export">Esporta backup</button><button class="btn ghost" type="button" data-act="restore">Ripristina</button></div></div>
+    <div class="card"><h4>Telefono e computer</h4><p>I dati stanno in ogni dispositivo per conto suo. Per portarli dall'uno all'altro: qui tocca «Manda», scegli Drive, email o WhatsApp; sull'altro dispositivo apri Home e tocca «Ricevi». Sull'altro i dati vengono sostituiti.</p>
+      <div class="btnrow"><button class="btn ghost" type="button" data-act="send">Manda su un altro dispositivo</button><button class="btn ghost" type="button" data-act="recv">Ricevi</button></div></div>
+    <div class="card"><h4>Guida</h4><p>Le tre schermate che compaiono alla prima apertura.</p><button class="btn ghost" type="button" data-act="tour">Rivedi la guida</button></div>
     <div class="card"><h4>Impostazioni delle sezioni</h4><p>Ogni sezione ha anche le sue: categorie, zone, persone, collegamenti.</p>
       <div class="btnrow">${Object.keys(AREAS).map(a => `<button class="btn ghost" type="button" data-aset="${a}">${AREAS[a].nome}</button>`).join('')}</div></div>
     <p class="muted" style="margin:0;font-size:13px;text-align:center">${APP} · versione ${VERSION}<br>© Gelu Inc.</p>
@@ -627,6 +695,7 @@ function renderImpo(){
     const [k, v] = b.dataset.h.split(':'); H[k] = v; saveH();
     if (k === 'modo') applyMode();
     if (k === 'tema'){ applyTheme(); Object.keys(AREAS).forEach(a => whenReady(a, h => h.setTheme(v))); }
+    if (k === 'testo') applyZoom();
     renderImpo();
   }));
   const sp = ov.querySelector('#h-split'); if (sp) sp.addEventListener('change', () => { H.split.on = sp.checked; saveH(); renderSplitBox(); });
@@ -634,8 +703,11 @@ function renderImpo(){
   ov.querySelectorAll('[data-up],[data-dn]').forEach(b => b.addEventListener('click', () => { const i = Number(b.dataset.up ?? b.dataset.dn), j = b.dataset.up != null ? i - 1 : i + 1; [H.order[i], H.order[j]] = [H.order[j], H.order[i]]; saveH(); renderImpo(); }));
   ov.querySelectorAll('input[name=ap]').forEach(r => r.addEventListener('change', () => { H.apertura = r.value; saveH(); }));
   ov.querySelectorAll('[data-aset]').forEach(b => b.addEventListener('click', () => { const a = b.dataset.aset; show(a); whenReady(a, () => { try { frame(a).contentDocument.getElementById('setBtn').click(); } catch(_){} setTimeout(syncButtons, 30); }); }));
-  ov.querySelector('[data-act=export]').addEventListener('click', exportSheet);
-  ov.querySelector('[data-act=restore]').addEventListener('click', restoreSheet);
+  ov.querySelector('[data-act=export]').addEventListener('click', () => exportSheet());
+  ov.querySelector('[data-act=restore]').addEventListener('click', () => restoreSheet());
+  ov.querySelector('[data-act=send]').addEventListener('click', () => exportSheet(true));
+  ov.querySelector('[data-act=recv]').addEventListener('click', () => restoreSheet(true));
+  ov.querySelector('[data-act=tour]').addEventListener('click', () => tourSheet(0));
   ov.querySelector('[data-pin]').addEventListener('click', pinSheet);
 }
 function applyMode(){
@@ -733,20 +805,20 @@ function wireFile(root, name, text){
     try { await navigator.clipboard.writeText(text); toast('Backup copiato'); } catch(_){ ta.focus(); ta.select(); toast('Testo selezionato: copialo dal menu'); }
   });
 }
-function exportSheet(){
+function exportSheet(send){
   const dati = {};
   Object.values(AREAS).forEach(A => { try { const v = localStorage.getItem(A.key); if (v) dati[A.key] = JSON.parse(v); } catch(_){} });
   const hh = Object.assign({}, H); delete hh.pin; delete hh.pinLen; dati[KEY] = hh;
   const json = JSON.stringify({app:'gelu-inc-home', esportato:new Date().toISOString(), dati}, null, 2), name = `home-${today()}.json`;
-  openSheet(`<h2>Backup di tutto</h2><p>Soldi, Spesa e Casa in un solo file.</p>
+  openSheet(`<h2>${send ? 'Manda su un altro dispositivo' : 'Backup di tutto'}</h2><p>${send ? 'Condividi il file e aprilo sull’altro dispositivo con Home → Impostazioni → Ricevi. Le foto restano qui.' : 'Soldi, Spesa e Casa in un solo file.'}</p>
     <button class="btn wide" id="x-sh" hidden>Condividi su Drive, email, WhatsApp…</button>
     <button class="btn ghost wide" id="x-dl">Scarica file</button>
     <button class="btn ghost wide" id="x-cp">Copia testo del backup</button>
     <textarea id="x-ta" class="mono" readonly aria-label="Backup">${esc(json)}</textarea>
-    <button class="btn ghost wide" data-close>Chiudi</button>`, root => wireFile(root, name, json));
+    <button class="btn ghost wide" data-close>Chiudi</button>`, root => { wireFile(root, name, json); root.querySelectorAll('#x-sh,#x-dl,#x-cp').forEach(b => b.addEventListener('click', () => { H.lastBackup = today(); saveH(); if (curView === 'home') renderOv(); })); });
 }
-function restoreSheet(){
-  openSheet(`<h2>Ripristina backup</h2><p>Sostituisce i dati con quelli del backup. Va bene sia il backup di Home sia quello di una singola app (Bilancino, Carrello o Casa).</p>
+function restoreSheet(recv){
+  openSheet(`<h2>${recv ? 'Ricevi da un altro dispositivo' : 'Ripristina backup'}</h2><p>${recv ? 'Scegli il file che hai mandato dall’altro dispositivo. ' : ''}Sostituisce i dati con quelli del backup. Va bene sia il backup di Home sia quello di una singola app (Bilancino, Carrello o Casa).</p>
     <input id="r-file" type="file" accept=".json,.txt,application/json,text/plain">
     <textarea id="r-ta" class="mono" aria-label="Testo del backup" placeholder="Oppure incolla qui il testo"></textarea>
     <div class="err" id="r-err"></div>
@@ -821,8 +893,18 @@ function installSheet(){
 installBtn.addEventListener('click', async () => { if (!(await doInstall())) installSheet(); });
 if (isStandalone()) markInstalled(true);
 updateInstallBtn();
+let swReg = null;
+function showUpdate(){
+  if (document.getElementById('upd')) return;
+  const el = document.createElement('div'); el.id = 'upd'; el.className = 'toast'; el.style.cssText = 'display:flex;gap:14px;align-items:center;bottom:calc(90px + env(safe-area-inset-bottom,0px))';
+  el.innerHTML = '<span>È disponibile una nuova versione di Home.</span><button type="button" style="border:0;background:none;color:var(--soldi);font-weight:700;padding:4px 2px">Aggiorna</button>';
+  el.querySelector('button').addEventListener('click', () => location.reload());
+  document.body.appendChild(el);
+}
 if ('serviceWorker' in navigator && location.protocol === 'https:'){
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  let hadCtrl = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadCtrl) showUpdate(); hadCtrl = true; });
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').then(r => { swReg = r; setInterval(() => { try { r.update(); } catch(_){} }, 30 * 60 * 1000); }).catch(() => {}));
 }
 
 /* ---------- eventi ---------- */
@@ -837,11 +919,15 @@ $('#noteBtn').addEventListener('click', () => { show('casa'); whenReady('casa', 
 $('#fab').addEventListener('click', quickSheet);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden){ hiddenAt = Date.now(); H.last = {area:AREAS[curView] ? curView : 'home', t:Date.now()}; saveH(); }
-  else { if (H.pin && hiddenAt && Date.now() - hiddenAt > 60000) showLock(); if (curView === 'home') renderOv(); }
+  else { if (H.pin && hiddenAt && Date.now() - hiddenAt > 60000) showLock(); if (curView === 'home') renderOv(); try { if (swReg) swReg.update(); } catch(_){} }
 });
 
 /* ---------- avvio ---------- */
 applyTheme();
+if (!H.firstUse){ H.firstUse = today(); saveH(); }
+if (zoom() !== 1){ document.documentElement.style.zoom = zoom(); document.body.classList.add('zoomed'); }
+if (H.lastVersion && H.lastVersion !== VERSION) setTimeout(() => toast(`Home aggiornata alla versione ${VERSION}`), 900);
+if (H.lastVersion !== VERSION){ H.lastVersion = VERSION; saveH(); }
 document.body.classList.toggle('desk', isDesk());
 let first = 'home', g0 = null, azioni = {};
 let az = null; try { az = new URLSearchParams(location.search).get('azione'); } catch(_){}
@@ -859,6 +945,7 @@ loadFrames(azioni);
 show(first, g0);
 renderSplitBox();
 if (H.pin) showLock();
+else if (!H.tourDone && !az) setTimeout(() => { if (!sheetEl) tourSheet(0); }, 700);
 })();
 </script>
 </body>
