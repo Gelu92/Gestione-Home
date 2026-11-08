@@ -1,5 +1,5 @@
 const PREFIX = 'gelu-inc-home-';
-const CACHE = PREFIX + 'v6';
+const CACHE = PREFIX + 'v7';
 const ASSETS = ['./', './index.html', './soldi.html', './spesa.html', './casa.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
